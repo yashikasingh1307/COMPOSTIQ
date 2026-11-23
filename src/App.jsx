@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import Overview from './pages/Overview'
 import { Sensors, CompostHealth, Automation, Alerts, Settings } from './pages/DetailPages'
 import { fetchDeviceData, fetchDeviceHealth } from './lib/api'
+import { getSensorData } from "./services/thingspeak";
 
 const PAGES=['Overview','Sensors','Compost health','Automation','Alerts & logs','Settings']
 export default function App(){
@@ -13,7 +14,7 @@ export default function App(){
  const [alert,setAlert]=useState('')
  const refresh=useCallback(async()=>{
   try{
-   const [next,h]=await Promise.all([fetchDeviceData(),fetchDeviceHealth().catch(()=>null)])
+   const [next,h]=await Promise.all([getSensorData(),fetchDeviceHealth().catch(()=>null)])
    setData(next);setHealth(h);setConnected(true);setError('');setLastSeen(new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}))
    const sample={time:new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),temperature:Number(next.temperature),humidity:Number(next.humidity),soilMoisture:Number(next.soilMoisture),gasValue:Number(next.gasValue)}
    setHistory(old=>[...old,sample].slice(-36))
