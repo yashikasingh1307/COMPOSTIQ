@@ -7,17 +7,18 @@
 #include <DHT.h>
 #include <WebServer.h>
 #include <PubSubClient.h>
+#include "secrets.h"  // Copy secrets.example.h to secrets.h and fill locally.
 
-const char* ssid = "Esp32";
-const char* password = "12345678";
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
 const char* mqtt_server = "189a6597eab74aadaac35f47fefe20b9.s1.eu.hivemq.cloud";
 const int mqtt_port = 8883;
-const char* mqtt_user = "COMPOSTIQ";
-const char* mqtt_pass = "Compost123";
+const char* mqtt_user = MQTT_USERNAME;
+const char* mqtt_pass = MQTT_PASSWORD;
 
 const char* thingSpeakServer = "api.thingspeak.com";
-String apiKey = "E5BV2IRCS6LWKQKE";
+String apiKey = THINGSPEAK_WRITE_API_KEY;
 
 #define DHT_PIN 4
 #define SOIL_SENSOR_PIN 34

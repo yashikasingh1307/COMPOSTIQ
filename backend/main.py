@@ -36,7 +36,9 @@ def home():
 def health():
     return {
         "status": "online",
-        "project": "COMPOSTIQ"
+        "project": "COMPOSTIQ",
+        "thingspeakConfigured": bool(CHANNEL_ID and READ_API_KEY),
+        "mqttStatus": "not_reported_by_backend",
     }
 
 
@@ -90,11 +92,22 @@ def get_sensor_data():
             "humidity": float(feed["field2"]),
             "soilMoisture": float(feed["field3"]),
             "gasValue": float(feed["field4"]),
-            "pump": int(float(feed["field5"])),
-            "fan": int(float(feed["field6"])),
-            "alarmState": None,
+            # Firmware field order: 5=alarm, 6=pump, 7=fan.
+            "alarmState": bool(int(float(feed["field5"]))),
+            "pumpState": bool(int(float(feed["field6"]))),
+            "fanState": bool(int(float(feed["field7"]))),
             "lastUpdate": feed["created_at"]
         }
+        if readings["gasValue"] > 1500:
+            readings["alertMessage"] = "HIGH GAS SPIKE DETECTED - Check compost!"
+        elif readings["soilMoisture"] > 2000:
+            readings["alertMessage"] = "COMPOST TOO DRY - Add Water"
+        elif readings["soilMoisture"] < 1000:
+            readings["alertMessage"] = "COMPOST TOO WET - Turn Compost"
+        elif readings["temperature"] < 20:
+            readings["alertMessage"] = "TEMPERATURE LOW - Compost Cooling"
+        else:
+            readings["alertMessage"] = "All systems normal"
 
     except (TypeError, ValueError, KeyError):
         raise HTTPException(

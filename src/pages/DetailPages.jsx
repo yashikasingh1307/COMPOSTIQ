@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import { Line } from 'react-chartjs-2'
-import { chartOptions } from '../lib/chart'
 import {
   Activity,
   AlertTriangle,
@@ -9,18 +7,18 @@ import {
   Fan,
   Gauge,
   Leaf,
-  Save,
   Settings as SettingsIcon,
   Thermometer,
   Wind,
   Droplets
 } from 'lucide-react'
+import { getBaseUrl, saveBaseUrl } from '../lib/api'
 
 // ==============================
 // SENSOR PAGE
 // ==============================
 
-export function Sensors({ data, history }) {
+export function Sensors({ data, history, connected, lastSeen }) {
   const cards = [
     ['Temperature', data?.temperature, '°C', 'DHT22 · GPIO 4'],
     ['Humidity', data?.humidity, '%', 'DHT22 · GPIO 4'],
@@ -49,10 +47,10 @@ export function Sensors({ data, history }) {
               {v == null ? '—' : Number(v).toFixed(1)} <i>{u}</i>
             </strong>
 
-            <p>{d}</p>
+            <p>{d} · {conditionFor(i, v)}</p>
 
             <span className="sensor-foot">
-              <span className="dot online" /> Reading from device
+              <span className={`dot ${connected ? 'online' : ''}`} /> {connected ? `Updated ${lastSeen || 'just now'}` : 'Waiting for device'}
             </span>
           </div>
         ))}
@@ -111,7 +109,7 @@ export function Sensors({ data, history }) {
 // ==============================
 
 export function CompostHealth({ data }) {
-  const score = Math.round(Number(data?.healthScore || 0))
+  const score = Math.round(Number(data?.healthScore ?? 0))
 
   return (
     <>
@@ -131,14 +129,12 @@ export function CompostHealth({ data }) {
 
           <div className="big-score">
             {data?.healthScore == null ? '—' : score}
-            <small>/100</small>
+            <small>{data?.healthScore == null ? ' score unavailable' : '/100'}</small>
           </div>
 
           <div className="score-track">
             <span
-              style={{
-                width: `${Math.max(0, Math.min(100, score))}%`
-              }}
+              style={{ width: `${data?.healthScore == null ? 0 : Math.max(0, Math.min(100, score))}%` }}
             />
           </div>
 
@@ -162,28 +158,24 @@ export function CompostHealth({ data }) {
         <section className="panel health-notes">
           <h3>What the sensors tell you</h3>
 
-          <Info
-            icon={<Thermometer />}
-            title="Temperature"
-            text="The DHT22 monitors compost temperature. The firmware uses it as one input to the health score and fan automation."
-          />
+          <Info icon={<Thermometer />} title="Temperature" text="Firmware reference: 20–35 °C target; fan starts at 35 °C and stops at 33 °C." />
 
           <Info
             icon={<Droplets />}
             title="Humidity"
-            text="Humidity is read by the DHT22 and contributes to the firmware health score."
+            text="Firmware reference: 40–60% humidity target."
           />
 
           <Info
             icon={<Leaf />}
             title="Soil moisture"
-            text="The analog moisture sensor indicates whether the compost is dry or wet. The ESP32 uses thresholds for alerts and pump timing."
+            text="Firmware reference: 1000–2000 ADC; dry alert and pump threshold above 2000, wet alert below 1000."
           />
 
           <Info
             icon={<Activity />}
             title="Gas level"
-            text="The gas sensor reading contributes to the health score and can trigger a high-gas alert and ventilation fan."
+            text="Firmware reference: high gas alert above 1500 ADC; fan starts at 1500 and stops at 1300."
           />
         </section>
       </div>
@@ -352,22 +344,24 @@ export function Alerts({ data, events }) {
 // ==============================
 
 export function Settings({ connected, onTest }) {
+  const [apiUrl, setApiUrl] = useState(getBaseUrl())
   const [saved, setSaved] = useState(false)
+  const [urlError, setUrlError] = useState('')
 
-  const [channel, setChannel] = useState(
-    localStorage.getItem('bdx-thingspeak-channel') || ''
-  )
-
-  const [readKey, setReadKey] = useState(
-    localStorage.getItem('bdx-thingspeak-readkey') || ''
-  )
-
-  function saveCloudSettings() {
-    localStorage.setItem('bdx-thingspeak-channel', channel.trim())
-    localStorage.setItem('bdx-thingspeak-readkey', readKey.trim())
-
+  function saveApiUrl() {
+    try {
+      const parsed = new URL(apiUrl.trim())
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Use an HTTP or HTTPS URL.')
+      saveBaseUrl(apiUrl)
+      setUrlError('')
+    } catch {
+      setUrlError('Enter a complete backend URL, such as http://127.0.0.1:8000.')
+      return
+    }
+    setApiUrl(getBaseUrl())
     setSaved(true)
-    setTimeout(() => setSaved(false), 2400)
+    onTest()
+    window.setTimeout(() => setSaved(false), 2200)
   }
 
   return (
@@ -375,7 +369,7 @@ export function Settings({ connected, onTest }) {
       <PageIntro
         eyebrow="SYSTEM CONFIGURATION"
         title="Connection settings"
-        desc="Manage your backend connection and optional ThingSpeak cloud charts."
+        desc="Review the live data path and service status for this CompostIQ installation."
       />
 
       {/* BACKEND CONNECTION */}
@@ -390,8 +384,7 @@ export function Settings({ connected, onTest }) {
             <h3>FastAPI backend</h3>
 
             <p>
-              Sensor readings are retrieved through the COMPOSTIQ
-              backend, which fetches the latest data from ThingSpeak.
+              Sensor readings are retrieved through the configured FastAPI service. Secrets stay in the backend environment.
             </p>
           </div>
 
@@ -405,7 +398,7 @@ export function Settings({ connected, onTest }) {
 
           <div>
             <b>Backend API</b>
-            <small>http://127.0.0.1:8000</small>
+            <small>{getBaseUrl()}</small>
           </div>
 
           <span className={`pill ${connected ? 'pill-green' : 'pill-red'}`}>
@@ -442,14 +435,20 @@ export function Settings({ connected, onTest }) {
           </button>
         </div>
 
+        <label className="field-label" htmlFor="api-url">Backend URL</label>
+        <input id="api-url" className="text-input" value={apiUrl} onChange={event => setApiUrl(event.target.value)} placeholder="http://127.0.0.1:8000" />
+        {urlError && <span className="field-help" role="alert">{urlError}</span>}
+        <div className="settings-actions">
+          <button className="primary-btn" onClick={saveApiUrl}><SettingsIcon size={15}/> Save backend URL</button>
+          {saved && <span className="saved-note">Saved in this browser</span>}
+        </div>
+
         <div className="cloud-note">
           The ESP32 sends sensor readings to ThingSpeak. FastAPI
           retrieves the latest readings and provides them to this dashboard.
           Keep the backend server running while using COMPOSTIQ.
         </div>
       </section>
-
-      {/* THINGSPEAK SETTINGS */}
 
       <section className="panel settings-panel">
         <div className="settings-title">
@@ -458,52 +457,14 @@ export function Settings({ connected, onTest }) {
           </span>
 
           <div>
-            <h3>ThingSpeak cloud charts</h3>
-
-            <p>
-              Configure optional read-only historical charts
-              from your ThingSpeak channel.
-            </p>
+            <h3>ThingSpeak</h3>
+            <p>The backend reads the latest cloud sample. Channel credentials are managed server-side.</p>
           </div>
+          <span className={`pill ${connected ? 'pill-green' : 'pill-neutral'}`}>{connected ? 'DATA AVAILABLE' : 'UNAVAILABLE'}</span>
         </div>
-
-        <label className="field-label">Channel ID</label>
-
-        <input
-          className="text-input"
-          value={channel}
-          onChange={e => setChannel(e.target.value)}
-          placeholder="Enter your ThingSpeak channel ID"
-        />
-
-        <label className="field-label field-spaced">
-          Read API key <span>(only if the channel is private)</span>
-        </label>
-
-        <input
-          className="text-input"
-          value={readKey}
-          onChange={e => setReadKey(e.target.value)}
-          placeholder="Read API key (optional)"
-        />
-
-        <div className="settings-actions">
-          <button className="primary-btn" onClick={saveCloudSettings}>
-            <Save size={15} />
-            Save cloud settings
-          </button>
-
-          {saved && (
-            <span className="saved-note">
-              Saved in this browser
-            </span>
-          )}
-        </div>
-
-        <div className="cloud-note">
-          These settings are used only for the optional embedded cloud charts.
-          The main sensor dashboard receives its readings through FastAPI.
-        </div>
+        <div className="cloud-row"><SettingsIcon/><div><b>Device</b><small>ESP32 local automation · configuration is not exposed by this API</small></div><span className="pill pill-neutral">READ ONLY</span></div>
+        <div className="cloud-row"><Cloud/><div><b>ThingSpeak credentials</b><small>Stored in the backend environment; no key is shown in the dashboard</small></div><span className={`pill ${connected ? 'pill-green' : 'pill-neutral'}`}>{connected ? 'RESPONDING' : 'UNKNOWN'}</span></div>
+        <div className="cloud-row"><Wind/><div><b>MQTT</b><small>The backend does not report MQTT connection status</small></div><span className="pill pill-neutral">NOT REPORTED</span></div>
       </section>
 
       {/* PIPELINE */}
@@ -560,44 +521,6 @@ export function Settings({ connected, onTest }) {
         </p>
       </section>
 
-      {/* OPTIONAL CLOUD CHARTS */}
-
-      {channel && (
-        <section className="panel settings-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>ThingSpeak channel charts</h3>
-              <p>Cloud history from your configured channel</p>
-            </div>
-
-            <span className="pill pill-green">CLOUD VIEW</span>
-          </div>
-
-          <div className="thingspeak-frame">
-            <iframe
-              title="ThingSpeak temperature chart"
-              src={`https://thingspeak.com/channels/${encodeURIComponent(channel)}/charts/1?bgcolor=%23fffefa&color=%2342694b&dynamic=true&results=60${
-                readKey
-                  ? `&api_key=${encodeURIComponent(readKey)}`
-                  : ''
-              }`}
-              loading="lazy"
-            />
-          </div>
-
-          <div className="thingspeak-frame">
-            <iframe
-              title="ThingSpeak humidity chart"
-              src={`https://thingspeak.com/channels/${encodeURIComponent(channel)}/charts/2?bgcolor=%23fffefa&color=%23658e91&dynamic=true&results=60${
-                readKey
-                  ? `&api_key=${encodeURIComponent(readKey)}`
-                  : ''
-              }`}
-              loading="lazy"
-            />
-          </div>
-        </section>
-      )}
     </>
   )
 }
@@ -627,4 +550,13 @@ function Info({ icon, title, text }) {
       </div>
     </div>
   )
+}
+
+function conditionFor(index, rawValue) {
+  if (rawValue == null || Number.isNaN(Number(rawValue))) return 'Unavailable'
+  const value = Number(rawValue)
+  if (index === 0) return value < 20 ? 'Below firmware range' : value > 35 ? 'Above firmware range' : 'Within 20–35 °C range'
+  if (index === 1) return value < 40 || value > 60 ? 'Outside firmware range' : 'Within 40–60% range'
+  if (index === 2) return value < 1000 ? 'Wet threshold' : value > 2000 ? 'Dry threshold' : 'Within 1000–2000 ADC range'
+  return value > 1500 ? 'High gas threshold' : 'Below 1500 ADC alert threshold'
 }

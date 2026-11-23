@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, Sprout, Wifi, WifiOff } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Overview from './pages/Overview'
@@ -20,6 +20,7 @@ export default function App() {
   const [history, setHistory] = useState([])
   const [events, setEvents] = useState([])
   const [alert, setAlert] = useState('')
+  const lastSnapshot = useRef(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -40,8 +41,10 @@ export default function App() {
         })
       )
 
+      const observedAt = new Date()
       const sample = {
-        time: new Date().toLocaleTimeString([], {
+        sourceTimestamp: next.lastUpdate || null,
+        time: (next.lastUpdate ? new Date(next.lastUpdate) : observedAt).toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit'
         }),
@@ -51,28 +54,25 @@ export default function App() {
         gasValue: Number(next.gasValue)
       }
 
-      setHistory(old => [...old, sample].slice(-36))
+      setHistory(old => {
+        if (sample.sourceTimestamp && old[old.length - 1]?.sourceTimestamp === sample.sourceTimestamp) return old
+        return [...old, sample].slice(-36)
+      })
 
       const message = next.alertMessage || 'No alert message'
       setAlert(message)
 
-      setEvents(old => {
-        const signature = `${!!next.alarmState}:${message}`
-
-        if (old[old.length - 1]?.signature === signature) {
-          return old
-        }
-
-        return [
-          ...old,
-          {
-            signature,
-            time: new Date().toLocaleTimeString(),
-            message,
-            alarm: !!next.alarmState
-          }
-        ].slice(-40)
-      })
+      const previous = lastSnapshot.current
+      const eventTime = observedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const additions = []
+      const sampleChanged = !previous || (next.lastUpdate && next.lastUpdate !== previous.lastUpdate)
+      if (sampleChanged) additions.push({ signature: `sample:${next.lastUpdate || observedAt.toISOString()}`, time: eventTime, message: 'Sensor data updated', alarm: false })
+      if (previous && previous.pumpState !== next.pumpState) additions.push({ signature: `pump:${observedAt.toISOString()}`, time: eventTime, message: `Water pump ${next.pumpState ? 'activated' : 'stopped'}`, alarm: false })
+      if (previous && previous.fanState !== next.fanState) additions.push({ signature: `fan:${observedAt.toISOString()}`, time: eventTime, message: `Ventilation fan ${next.fanState ? 'activated' : 'stopped'}`, alarm: false })
+      if (next.alarmState && (!previous || !previous.alarmState)) additions.push({ signature: `alert:${observedAt.toISOString()}`, time: eventTime, message, alarm: true })
+      if (previous?.alarmState && !next.alarmState) additions.push({ signature: `resolved:${observedAt.toISOString()}`, time: eventTime, message: 'Device alert cleared', alarm: false })
+      lastSnapshot.current = next
+      if (additions.length) setEvents(old => [...old, ...additions].slice(-40))
 
     } catch (e) {
       setConnected(false)
@@ -87,6 +87,10 @@ export default function App() {
 
     return () => clearInterval(id)
   }, [refresh])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [page])
 
   const pageContent = useMemo(() => {
     const common = {
@@ -132,7 +136,7 @@ export default function App() {
         setCollapsed={setCollapsed}
       />
 
-      <main className="main-area">
+      <main className={`main-area ${page === 'Overview' ? 'overview-active' : ''}`}>
         <header className="topbar">
           <div className="breadcrumb">
             <span>COMPOSTIQ</span>
@@ -159,7 +163,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="content-wrap">
+        <div className="content-wrap" key={page}>
           {pageContent}
 
           {error && (
