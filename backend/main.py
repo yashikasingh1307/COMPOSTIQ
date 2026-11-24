@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -9,6 +10,7 @@ load_dotenv()
 
 CHANNEL_ID = os.getenv("THINGSPEAK_CHANNEL_ID")
 READ_API_KEY = os.getenv("THINGSPEAK_READ_API_KEY")
+ESP32_BASE_URL = os.getenv("ESP32_BASE_URL", "").strip().rstrip("/")
 
 app = FastAPI(title="COMPOSTIQ Backend")
 
@@ -32,6 +34,7 @@ def health():
         "status": "online",
         "project": "COMPOSTIQ",
         "thingspeakConfigured": bool(CHANNEL_ID and READ_API_KEY),
+        "esp32Configured": bool(ESP32_BASE_URL),
         "mqttStatus": "not_reported_by_backend",
     }
 
@@ -100,6 +103,48 @@ def _optional_state(feed, field_name):
     return bool(int(float(value)))
 
 
+def _parse_device_payload(payload):
+    """Normalize the firmware /data response while preserving unknown statuses."""
+    readings = {
+        "temperature": float(payload["temperature"]),
+        "humidity": float(payload["humidity"]),
+        "soilMoisture": float(payload["soilMoisture"]),
+        "gasValue": float(payload["gasValue"]),
+        "alarmState": payload.get("alarmState"),
+        "pumpState": payload.get("pumpState"),
+        "fanState": payload.get("fanState"),
+        "lastUpdate": datetime.now(timezone.utc).isoformat(),
+        "source": "esp32",
+    }
+    for key in ("alarmState", "pumpState", "fanState"):
+        if readings[key] is not None:
+            value = readings[key]
+            if isinstance(value, str):
+                readings[key] = bool(int(float(value)))
+            else:
+                readings[key] = bool(value)
+    if payload.get("healthScore") is not None:
+        readings["healthScore"] = float(payload["healthScore"])
+    readings["alertMessage"] = payload.get("alertMessage") or _alert_message(readings)
+    return readings
+
+
+def _fetch_device_data():
+    """Read instantaneous state from ESP32 server-side; the browser still calls FastAPI only."""
+    if not ESP32_BASE_URL:
+        return None
+    try:
+        response = requests.get(f"{ESP32_BASE_URL}/data", timeout=3)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            return None
+        return _parse_device_payload(payload)
+    except (requests.RequestException, TypeError, ValueError, KeyError):
+        # ThingSpeak remains the fallback when the device is temporarily unreachable.
+        return None
+
+
 def _parse_feed(feed):
     readings = {
         "temperature": float(feed["field1"]),
@@ -114,6 +159,7 @@ def _parse_feed(feed):
         "pumpState": _optional_state(feed, "field6"),
         "fanState": _optional_state(feed, "field7"),
         "lastUpdate": feed["created_at"],
+        "source": "thingspeak",
     }
     readings["healthScore"] = _health_score(
         readings["temperature"], readings["humidity"],
@@ -125,6 +171,9 @@ def _parse_feed(feed):
 
 @app.get("/api/sensors")
 def get_sensor_data():
+    device_reading = _fetch_device_data()
+    if device_reading is not None:
+        return device_reading
     # Inspect a short window so one partial ThingSpeak upload does not block the
     # dashboard when a nearby complete sensor sample is available.
     feeds = _fetch_feeds({"results": 10})

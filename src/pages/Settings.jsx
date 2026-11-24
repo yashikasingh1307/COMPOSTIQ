@@ -39,7 +39,8 @@ export default function Settings({ d }) {
           <dl className="kv">
             <div><dt>Backend</dt><dd>{d.health?.status === 'online' ? 'Online' : 'Unreachable'}</dd></div>
             <div><dt>ThingSpeak credentials</dt><dd>{d.health?.thingspeakConfigured ? 'Configured on server' : 'Not reported / missing'}</dd></div>
-            <div><dt>Sensor data</dt><dd>{d.source === 'thingspeak' ? 'ThingSpeak via FastAPI' : 'Waiting for data'}</dd></div>
+            <div><dt>Live ESP32 feed</dt><dd>{d.health?.esp32Configured ? 'Configured on server' : 'Not configured'}</dd></div>
+            <div><dt>Sensor data</dt><dd>{d.source === 'esp32' ? 'Live from ESP32 via FastAPI' : d.source === 'thingspeak' ? 'ThingSpeak via FastAPI' : 'Waiting for data'}</dd></div>
             <div><dt>Historical samples</dt><dd>{d.history.length} real feed rows</dd></div>
           </dl>
           {d.errors.backend && <p className="note">{d.errors.backend}</p>}

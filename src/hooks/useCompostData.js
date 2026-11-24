@@ -120,8 +120,8 @@ export function useCompostData() {
   }, [pollLatest, pollHealth, pollHistory])
 
   const age = reading ? now - reading.t.getTime() : null
-  const state = !reading ? (triedLatest ? 'offline' : 'loading') : age > STALE_MS ? 'stale' : 'cloud'
-  const source = reading ? 'thingspeak' : null
+  const state = !reading ? (triedLatest ? 'offline' : 'loading') : age > STALE_MS ? 'stale' : reading.source === 'esp32' ? 'live' : 'cloud'
+  const source = reading?.source ?? null
 
   const alerts = useMemo(() => {
     if (!reading || state === 'stale') return []
@@ -144,11 +144,11 @@ export function useCompostData() {
     return {
       wifi: 'unknown', wifiNote: 'Wi-Fi status is not exposed by FastAPI',
       mqtt: 'unknown', mqttNote: 'MQTT status is not exposed by FastAPI',
-      thingspeak: fresh && !errors.backend ? 'connected' : errors.backend ? 'disconnected' : 'unknown',
-      thingspeakNote: fresh ? 'Latest sample received through FastAPI' : 'Waiting for a recent sample',
+      thingspeak: fresh && !errors.backend && reading?.source !== 'esp32' ? 'connected' : errors.backend ? 'disconnected' : 'unknown',
+      thingspeakNote: reading?.source === 'esp32' ? 'Latest sensor and actuator state is live from ESP32 through FastAPI' : fresh ? 'Latest sample received through FastAPI' : 'Waiting for a recent sample',
       uptime: null,
     }
-  }, [age, errors.backend])
+  }, [age, errors.backend, reading?.source])
 
   const sampleStamp = reading?.t?.getTime()
   useEffect(() => {
