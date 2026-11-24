@@ -6,26 +6,28 @@ export const getBaseUrl = () =>
 export const saveBaseUrl = value =>
   localStorage.setItem('bdx-esp32-url', value.trim().replace(/\/$/, ''))
 
-export async function fetchDeviceData() {
-  const response = await fetch(`${getBaseUrl()}/api/sensors`, {
+async function fetchJson(path, signal) {
+  const response = await fetch(`${getBaseUrl()}${path}`, {
+    signal,
     cache: 'no-store'
   })
-
   if (!response.ok) {
-    throw new Error(`Backend returned HTTP ${response.status}`)
+    let detail = ''
+    try { detail = (await response.json()).detail || '' } catch { /* use status text */ }
+    throw new Error(detail || `Backend returned HTTP ${response.status}`)
   }
-
   return response.json()
 }
 
-export async function fetchDeviceHealth() {
-  const response = await fetch(`${getBaseUrl()}/api/health`, {
-    cache: 'no-store'
-  })
+export function fetchDeviceData(signal) {
+  return fetchJson('/api/sensors', signal)
+}
 
-  if (!response.ok) {
-    throw new Error(`Backend health endpoint returned HTTP ${response.status}`)
-  }
+export function fetchDeviceHealth(signal) {
+  return fetchJson('/api/health', signal)
+}
 
-  return response.json()
+export async function fetchDeviceHistory(minutes = 1440, signal) {
+  const query = new URLSearchParams({ minutes: String(minutes) })
+  return fetchJson(`/api/history?${query}`, signal)
 }

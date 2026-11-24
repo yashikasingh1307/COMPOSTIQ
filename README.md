@@ -1,6 +1,6 @@
 # CompostIQ
 
-CompostIQ is a React/Vite dashboard for the existing ESP32 compost monitor. The redesign includes six connected pages, live sensor cards, session-only sample history, firmware-based threshold guidance, and a botanical glass UI. It reads sensor samples through the repository's FastAPI → ThingSpeak pipeline.
+CompostIQ is a React/Vite dashboard for the existing ESP32 compost monitor. The Claude redesign supplies the six-page botanical glass UI; all readings continue through the existing FastAPI → ThingSpeak pipeline.
 
 ## Run locally
 
@@ -27,12 +27,14 @@ Firmware credentials are not included. Copy `firmware/secrets.example.h` to `fir
 
 ## Data and limitations
 
-- The backend requests only the latest ThingSpeak feed. The sensor table and trend chart therefore retain samples only while this dashboard session is open; they are not historical cloud queries.
-- The current ThingSpeak feed contains sensor values plus alarm, pump, and fan fields. The backend maps these fields according to the firmware (`field5` alarm, `field6` pump, `field7` fan).
-- The firmware health score is not included in ThingSpeak fields. The dashboard reports the score as unavailable rather than fabricating or recalculating it.
-- MQTT connectivity is not exposed by the FastAPI service, so Settings marks it as unreported.
-- Event entries are observed during the current browser session, not retrieved from a persistent event log.
-- Device name, location, timezone, manual actuator modes, buzzer controls, and persistent alerts are not supported by the existing API and are not presented as working settings.
+- The browser calls FastAPI only: `/api/sensors`, `/api/health`, and `/api/history`. ThingSpeak credentials remain in the backend environment.
+- Firmware field mapping is verified in `sendToThingSpeak()`: fields 1–4 are temperature, humidity, soil moisture and gas; field 5 is alarm; field 6 is pump; field 7 is fan.
+- `/api/history` proxies up to 8,000 samples for a selected time window. ThingSpeak's Read Data API supports `minutes` and a maximum of 8,000 results ([MathWorks API reference](https://www.mathworks.com/help/thingspeak/readdata.html)).
+- The firmware health score is not uploaded in the ThingSpeak fields. The backend calculates the same formula from real readings and the UI labels the result estimated.
+- Wi-Fi, MQTT and uptime are not reported by the current FastAPI API, so these indicators remain unknown unless a future backend version exposes them.
+- Event transitions observed in the browser are session events; alert history and sensor trends are reconstructed from real ThingSpeak samples.
+- The ESP32 runs pump and fan automation locally. The dashboard reports their states but has no manual actuator controls because the current firmware `/control` handler does not implement commands.
+- Device name, location, timezone, buzzer controls and persistent device-side alert configuration are not exposed by the current API.
 
 ## Summary of the redesign
 

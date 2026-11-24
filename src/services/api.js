@@ -1,5 +1,10 @@
-import { fetchDeviceData } from '../lib/api'
+import { fetchDeviceData, fetchDeviceHistory } from '../lib/api'
 
-export async function getSensorData() {
-  return fetchDeviceData()
+export function getSensorData(signal) {
+  return fetchDeviceData(signal)
+}
+
+export async function getSensorHistory(minutes = 1440, signal) {
+  const payload = await fetchDeviceHistory(minutes, signal)
+  return Array.isArray(payload?.readings) ? payload.readings : []
 }
