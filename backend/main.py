@@ -1,4 +1,6 @@
+import copy
 import os
+from datetime import datetime, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -9,6 +11,18 @@ load_dotenv()
 
 CHANNEL_ID = os.getenv("THINGSPEAK_CHANNEL_ID")
 READ_API_KEY = os.getenv("THINGSPEAK_READ_API_KEY")
+
+# Alert thresholds. Change them here instead of editing the alert logic.
+GAS_SPIKE_LIMIT = 1500
+SOIL_DRY_LIMIT = 2000
+SOIL_WET_LIMIT = 1000
+TEMP_LOW_LIMIT = 20
+
+# If the newest ThingSpeak entry is older than this, the device is treated as offline.
+MAX_DATA_AGE_MINUTES = 10
+
+# Most recent complete, fresh reading. Used as a fallback when ThingSpeak fails.
+last_good_readings = None
 
 app = FastAPI(title="COMPOSTIQ Backend")
 
@@ -25,26 +39,40 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-def home():
-    return {
-        "message": "COMPOSTIQ Backend is running!"
-    }
+def read_float(feed, key):
+    """Read one ThingSpeak field as a float and explain exactly what went wrong."""
+    raw = feed.get(key)  # .get returns None instead of raising KeyError
+
+    if raw is None or raw == "":
+        # ThingSpeak sends null/empty for fields the device didn't report
+        raise HTTPException(
+            status_code=422,
+            detail=f"ThingSpeak {key} is empty.",
+        )
+
+    try:
+        return float(raw)  # ThingSpeak returns values as strings, so convert
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"ThingSpeak {key} is not a number: {raw!r}",
+        )
 
 
-@app.get("/api/health")
-def health():
-    return {
-        "status": "online",
-        "project": "COMPOSTIQ",
-        "thingspeakConfigured": bool(CHANNEL_ID and READ_API_KEY),
-        "mqttStatus": "not_reported_by_backend",
-    }
+def is_too_old(timestamp):
+    """Return True if the ThingSpeak timestamp is missing, unreadable, or older than the limit."""
+    try:
+        # ThingSpeak uses a trailing "Z" for UTC, which fromisoformat needs spelled as +00:00
+        last_update = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return True
+
+    age = datetime.now(timezone.utc) - last_update
+    return age > timedelta(minutes=MAX_DATA_AGE_MINUTES)
 
 
-@app.get("/api/sensors")
-def get_sensor_data():
-
+def fetch_latest_feed():
+    """Ask ThingSpeak for the newest entry on the channel."""
     if not CHANNEL_ID or not READ_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -84,35 +112,88 @@ def get_sensor_data():
             detail="No sensor readings available."
         )
 
-    feed = feeds[0]
+    return feeds[0]
+
+
+def build_readings():
+    """Fetch the latest feed and turn it into dashboard readings with an alert message."""
+    feed = fetch_latest_feed()
+
+    # Field order as used by the device: 5=pump, 6=fan.
+    readings = {
+        "temperature": read_float(feed, "field1"),
+        "humidity": read_float(feed, "field2"),
+        "soilMoisture": read_float(feed, "field3"),
+        "gasValue": read_float(feed, "field4"),
+        "pumpState": bool(int(read_float(feed, "field5"))),
+        "fanState": bool(int(read_float(feed, "field6"))),
+        "lastUpdate": feed.get("created_at"),
+    }
+
+    if readings["gasValue"] > GAS_SPIKE_LIMIT:
+        readings["alertMessage"] = "HIGH GAS SPIKE DETECTED - Check compost!"
+    elif readings["soilMoisture"] > SOIL_DRY_LIMIT:
+        readings["alertMessage"] = "COMPOST TOO DRY - Add Water"
+    elif readings["soilMoisture"] < SOIL_WET_LIMIT:
+        readings["alertMessage"] = "COMPOST TOO WET - Turn Compost"
+    elif readings["temperature"] < TEMP_LOW_LIMIT:
+        readings["alertMessage"] = "TEMPERATURE LOW - Compost Cooling"
+    else:
+        readings["alertMessage"] = "All systems normal"
+
+    return readings
+
+
+@app.get("/")
+def home():
+    return {
+        "message": "COMPOSTIQ Backend is running!"
+    }
+
+
+@app.get("/api/health")
+def health():
+    return {
+        "status": "online",
+        "project": "COMPOSTIQ",
+        "thingspeakConfigured": bool(CHANNEL_ID and READ_API_KEY),
+        "mqttStatus": "not_reported_by_backend",
+    }
+
+
+@app.get("/api/sensors")
+def get_sensor_data():
+    global last_good_readings
 
     try:
-        readings = {
-            "temperature": float(feed["field1"]),
-            "humidity": float(feed["field2"]),
-            "soilMoisture": float(feed["field3"]),
-            "gasValue": float(feed["field4"]),
-            # Firmware field order: 5=alarm, 6=pump, 7=fan.
-            "alarmState": bool(int(float(feed["field5"]))),
-            "pumpState": bool(int(float(feed["field6"]))),
-            "fanState": bool(int(float(feed["field7"]))),
-            "lastUpdate": feed["created_at"]
-        }
-        if readings["gasValue"] > 1500:
-            readings["alertMessage"] = "HIGH GAS SPIKE DETECTED - Check compost!"
-        elif readings["soilMoisture"] > 2000:
-            readings["alertMessage"] = "COMPOST TOO DRY - Add Water"
-        elif readings["soilMoisture"] < 1000:
-            readings["alertMessage"] = "COMPOST TOO WET - Turn Compost"
-        elif readings["temperature"] < 20:
-            readings["alertMessage"] = "TEMPERATURE LOW - Compost Cooling"
-        else:
-            readings["alertMessage"] = "All systems normal"
+        readings = build_readings()
+    except HTTPException as error:
+        # Fall back to the last good reading for data problems only.
+        # Missing credentials (500) and a first request with no history still fail.
+        if last_good_readings is None or error.status_code == 500:
+            raise
 
-    except (TypeError, ValueError, KeyError):
-        raise HTTPException(
-            status_code=422,
-            detail="Sensor data is incomplete or invalid."
+        stale = copy.deepcopy(last_good_readings)
+
+        # Actuator states can change without us seeing them, so mark them unknown.
+        stale["pumpState"] = None
+        stale["fanState"] = None
+
+        stale["stale"] = True
+        stale["staleReason"] = error.detail
+        return stale
+
+    # The fetch worked, but the device may have stopped sending updates.
+    if is_too_old(readings["lastUpdate"]):
+        readings["pumpState"] = None
+        readings["fanState"] = None
+        readings["stale"] = True
+        readings["staleReason"] = (
+            f"No device update since {readings['lastUpdate']}."
         )
+        return readings
 
+    readings["stale"] = False
+    readings["staleReason"] = None
+    last_good_readings = copy.deepcopy(readings)
     return readings
