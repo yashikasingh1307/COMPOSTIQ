@@ -31,3 +31,16 @@ export async function fetchDeviceHistory(minutes = 1440, signal) {
   const query = new URLSearchParams({ minutes: String(minutes) })
   return fetchJson(`/api/history?${query}`, signal)
 }
+
+export async function sendDeviceControl(command, signal) {
+  const response = await fetch(`${getBaseUrl()}/api/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+    signal,
+    cache: 'no-store',
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload.detail || `Control failed (HTTP ${response.status})`)
+  return payload
+}

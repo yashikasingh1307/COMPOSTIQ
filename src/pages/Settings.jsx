@@ -25,9 +25,9 @@ export default function Settings({ d }) {
   }
 
   const th = [
-    ['Pump dry trigger', `Soil > ${T.soilDry} ADC`],
+    ['Pump dry trigger', `Soil > ${d.reading?.thresholds?.soilDry ?? T.soilDry} ADC`],
     ['Pump pulse / cooldown', `${T.pumpBurstMs / 1000} s / ${T.pumpCooldownMs / 1000} s`],
-    ['Fan on thresholds', `${T.tempHigh} °C / ${T.gasHigh} ADC`],
+    ['Fan on thresholds', `${d.reading?.thresholds?.temperatureHigh ?? T.tempHigh} °C / ${T.gasHigh} ADC`],
     ['Fan stop thresholds', `${T.tempFanOff} °C / ${T.gasFanOff} ADC`],
     ['Alarm thresholds', `Soil < ${T.soilWet} or > ${T.soilDry}; gas > ${T.gasHigh}; temp < ${T.tempLow} °C`],
   ]
@@ -40,6 +40,7 @@ export default function Settings({ d }) {
             <div><dt>Backend</dt><dd>{d.health?.status === 'online' ? 'Online' : 'Unreachable'}</dd></div>
             <div><dt>ThingSpeak credentials</dt><dd>{d.health?.thingspeakConfigured ? 'Configured on server' : 'Not reported / missing'}</dd></div>
             <div><dt>Live ESP32 feed</dt><dd>{d.health?.esp32Configured ? 'Configured on server' : 'Not configured'}</dd></div>
+            <div><dt>Hardware controls</dt><dd>{d.health?.controlConfigured && d.health?.deviceControlConfigured === true ? 'Ready' : d.health?.controlConfigured ? 'Update firmware / token' : 'Not configured'}</dd></div>
             <div><dt>Sensor data</dt><dd>{d.source === 'esp32' ? 'Live from ESP32 via FastAPI' : d.source === 'thingspeak' ? 'ThingSpeak via FastAPI' : 'Waiting for data'}</dd></div>
             <div><dt>Historical samples</dt><dd>{d.history.length} real feed rows</dd></div>
           </dl>
@@ -72,7 +73,7 @@ export default function Settings({ d }) {
             <div><dt>History</dt><dd><code>/api/history</code></dd></div>
             <div><dt>Backend status</dt><dd><code>/api/health</code></dd></div>
           </dl>
-          <p className="note">The ESP32 uploads fields to ThingSpeak. FastAPI reads and normalizes those fields for this UI.</p>
+          <p className="note">FastAPI reads live sensor and actuator state from the ESP32 when configured. ThingSpeak supplies historical samples and remains the live-data fallback.</p>
         </GlassCard>
       </div>
     </div>
