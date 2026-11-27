@@ -1,13 +1,17 @@
 import os
 import math
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-load_dotenv()
+# Load the backend's own .env regardless of the directory used to launch
+# uvicorn (for example, `uvicorn backend.main:app` from the project root).
+# Existing process environment variables still take precedence.
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"), override=False)
 
 CHANNEL_ID = os.getenv("THINGSPEAK_CHANNEL_ID")
 READ_API_KEY = os.getenv("THINGSPEAK_READ_API_KEY")
@@ -32,12 +36,14 @@ def home():
 
 @app.get("/api/health")
 def health():
+    thingspeak_configured = bool(CHANNEL_ID and READ_API_KEY)
+    esp32_configured = bool(ESP32_BASE_URL)
     result = {
         "status": "online",
         "project": "COMPOSTIQ",
-        "thingspeakConfigured": bool(CHANNEL_ID and READ_API_KEY),
-        "esp32Configured": bool(ESP32_BASE_URL),
-        "controlConfigured": bool(ESP32_BASE_URL and CONTROL_API_TOKEN),
+        "thingspeakConfigured": thingspeak_configured,
+        "esp32Configured": esp32_configured,
+        "controlConfigured": bool(esp32_configured and CONTROL_API_TOKEN),
         "deviceControlConfigured": None,
         "mqttStatus": "not_reported_by_backend",
         "esp32Reachable": None,
@@ -45,8 +51,10 @@ def health():
         "mqttConnected": None,
         "thingSpeakConnected": None,
         "uptimeSeconds": None,
+        "sensorDataSource": "esp32" if esp32_configured else ("thingspeak" if thingspeak_configured else None),
+        "configurationHint": None,
     }
-    if ESP32_BASE_URL:
+    if esp32_configured:
         try:
             response = requests.get(f"{ESP32_BASE_URL}/health", timeout=2.5)
             response.raise_for_status()
@@ -65,6 +73,11 @@ def health():
                 result["controlConfigured"] = result["controlConfigured"] and device.get("controlConfigured") is True
         except (requests.RequestException, TypeError, ValueError):
             result["esp32Reachable"] = False
+            result["configurationHint"] = "ESP32_BASE_URL is set, but the ESP32 /health endpoint could not be reached. Check the device IP, Wi-Fi, and firmware."
+    elif thingspeak_configured:
+        result["configurationHint"] = "ESP32_BASE_URL is not set. Sensor readings use ThingSpeak, so they may be delayed."
+    else:
+        result["configurationHint"] = "Configure ESP32_BASE_URL for live device readings or add ThingSpeak channel credentials."
     return result
 
 
@@ -235,6 +248,16 @@ def get_sensor_data():
     device_reading = _fetch_device_data()
     if device_reading is not None:
         return device_reading
+    if not (CHANNEL_ID and READ_API_KEY):
+        if ESP32_BASE_URL:
+            raise HTTPException(
+                status_code=502,
+                detail="FastAPI could not read /data from the configured ESP32, and ThingSpeak fallback is not configured. Check ESP32_BASE_URL, Wi-Fi, and firmware.",
+            )
+        raise HTTPException(
+            status_code=503,
+            detail="No sensor source is configured. Set ESP32_BASE_URL for live ESP32 readings or configure ThingSpeak credentials in backend/.env.",
+        )
     # Inspect a short window so one partial ThingSpeak upload does not block the
     # dashboard when a nearby complete sensor sample is available.
     feeds = _fetch_feeds({"results": 10})
