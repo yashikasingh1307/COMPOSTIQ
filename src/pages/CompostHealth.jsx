@@ -19,7 +19,6 @@ const TIPS = {
 
 export default function CompostHealth({ d }) {
   const { reading, state } = d
-  const optimal = { ...OPTIMAL, soilMoisture: `${T.soilWet}–${reading?.thresholds?.soilDry ?? T.soilDry} ADC` }
   const parts = estimateHealthScore(reading)?.parts
   const stale = state === 'stale'
   const tips = d.alerts.map(a => TIPS[a.id]).filter(Boolean)
@@ -29,8 +28,8 @@ export default function CompostHealth({ d }) {
       <GlassCard title="Factors affecting health" icon={ListChecks}>
         <div className="table-wrap"><table>
           <thead><tr><th>Sensor</th><th>Current</th><th>Preferred range</th><th>Condition</th><th>Score contribution</th></tr></thead>
-          <tbody>{SENSORS.map(s => { const st = reading?.sensorValidity?.[s.key] === false ? sensorStatus(s.key, reading) : stale ? { label: 'Stale', tone: 'warn' } : sensorStatus(s.key, reading); return (
-            <tr key={s.key}><td>{s.label}</td><td>{fmtNum(reading?.[s.key], s.d)} {reading?.[s.key] != null ? s.unit : ''}</td><td>{optimal[s.key]}</td><td><Pill tone={st.tone}>{st.label}</Pill></td><td>{parts ? `${parts[s.key].toFixed(1)} / 25` : '—'}</td></tr>) })}</tbody>
+          <tbody>{SENSORS.map(s => { const st = stale ? { label: 'Stale', tone: 'warn' } : sensorStatus(s.key, reading); return (
+            <tr key={s.key}><td>{s.label}</td><td>{fmtNum(reading?.[s.key], s.d)} {reading?.[s.key] != null ? s.unit : ''}</td><td>{OPTIMAL[s.key]}</td><td><Pill tone={st.tone}>{st.label}</Pill></td><td>{parts ? `${parts[s.key].toFixed(1)} / 25` : '—'}</td></tr>) })}</tbody>
         </table></div>
         <small className="stamp">The score is the average of four equal sensor scores (each up to 100). {d.score?.source === 'firmware' ? 'The total comes from the ESP32.' : 'Total estimated from cloud data with the firmware formula.'}</small>
       </GlassCard>

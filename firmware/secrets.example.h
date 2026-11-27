@@ -5,4 +5,3 @@
 #define MQTT_USERNAME "your-hivemq-username"
 #define MQTT_PASSWORD "your-hivemq-password"
 #define THINGSPEAK_WRITE_API_KEY "your-thingspeak-write-key"
-#define CONTROL_API_TOKEN ""

@@ -12,9 +12,7 @@ export const SENSORS = [
 ]
 
 export function SensorTile({ s, reading, history, now, stale }) {
-  const st = reading?.sensorValidity?.[s.key] === false
-    ? sensorStatus(s.key, reading)
-    : stale ? { label: 'Stale', tone: 'warn' } : sensorStatus(s.key, reading)
+  const st = stale ? { label: 'Stale', tone: 'warn' } : sensorStatus(s.key, reading)
   const Icon = s.icon
   return (
     <div className="tile">

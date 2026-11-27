@@ -186,23 +186,6 @@ th { text-align: left; font-weight: 500; font-size: .82rem; color: var(--muted);
 .form-actions { margin-top: 1rem; } .btn { display: inline-flex; gap: .5rem; align-items: center; padding: .6rem 1.3rem; border-radius: 99px; border: 1px solid rgba(255,255,255,.6); background: rgba(255,255,255,.6); } .btn.primary { background: var(--botanical); color: var(--ivory); border-color: var(--botanical); }
 .ts-frame { width: 100%; height: 14rem; border: 0; border-radius: .8rem; margin-top: .7rem; } summary { cursor: pointer; }
 .auto-card .kv { margin-top: .3rem; }
-.automation-page .mode-card { background: linear-gradient(105deg, rgba(229,238,212,.82), rgba(250,248,230,.64)); }
-.mode-line { display: flex; align-items: center; justify-content: space-between; gap: 1.2rem; }
-.mode-line > div:first-child > b { font: 500 1.2rem var(--text); color: var(--botanical); }
-.mode-line .note { margin: .2rem 0 0; }
-.mode-switch { display: inline-flex; align-items: center; gap: .15rem; padding: .2rem; border-radius: 99px; background: rgba(255,255,255,.65); border: 1px solid rgba(255,255,255,.8); }
-.mode-switch button { min-width: 6.5rem; padding: .58rem 1rem; border: 0; border-radius: 99px; background: transparent; color: var(--botanical); font: 500 .95rem var(--text); }
-.mode-switch button.selected { color: #fff; background: linear-gradient(145deg, #648a62, #315f43); box-shadow: 0 .25rem .7rem rgba(37,75,48,.22); }
-.mode-switch button:disabled, .btn:disabled { opacity: .52; cursor: not-allowed; }
-.actuator-control { min-height: 10rem; }
-.control-current { display: flex; align-items: center; gap: .55rem; margin: .45rem 0 .75rem; color: var(--botanical); }
-.actuator-command { min-width: 11rem; justify-content: center; font: 500 1rem var(--text); }
-.actuator-command.start { color: #fff; background: linear-gradient(145deg, #648a62, #315f43); box-shadow: 0 .3rem .8rem rgba(37,75,48,.22); }
-.actuator-command.stop { color: #315f43; background: rgba(190,214,166,.75); }
-.control-feedback { margin: .8rem 0 0; padding: .7rem .9rem; border-radius: .8rem; }
-.control-feedback.success { background: rgba(144,190,126,.24); color: #315f43; }
-.control-feedback.error { background: rgba(214,120,100,.2); color: #98402d; }
-.threshold-form { margin-top: .4rem; }
 
 /* ----- Responsive ----- */
 @media (max-width: 1100px), (max-height: 620px) {

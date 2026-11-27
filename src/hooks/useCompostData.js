@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getSensorData, getSensorHistory } from '../services/api'
-import { fetchDeviceHealth, sendDeviceControl } from '../lib/api'
+import { fetchDeviceHealth } from '../lib/api'
 import { evaluateAlerts, estimateHealthScore } from '../lib/rules'
 import { deriveEpisodes, deriveEvents } from '../lib/events'
 
@@ -11,20 +11,13 @@ const STALE_MS = 5 * 60 * 1000
 function normalizeReading(row) {
   const t = new Date(row?.lastUpdate)
   if (Number.isNaN(t.getTime())) return null
-  const validity = row.sensorValidity || {
-    temperature: !(Number(row.temperature) === 0 && Number(row.humidity) === 0),
-    humidity: !(Number(row.temperature) === 0 && Number(row.humidity) === 0),
-    soilMoisture: Number(row.soilMoisture) > 5 && Number(row.soilMoisture) < 4090,
-    gasValue: Number(row.gasValue) > 5 && Number(row.gasValue) < 4090,
-  }
   return {
     ...row,
-    sensorValidity: validity,
     t,
-    temperature: validity.temperature && row.temperature != null ? Number(row.temperature) : null,
-    humidity: validity.humidity && row.humidity != null ? Number(row.humidity) : null,
-    soilMoisture: validity.soilMoisture && row.soilMoisture != null ? Number(row.soilMoisture) : null,
-    gasValue: validity.gasValue && row.gasValue != null ? Number(row.gasValue) : null,
+    temperature: Number(row.temperature),
+    humidity: Number(row.humidity),
+    soilMoisture: Number(row.soilMoisture),
+    gasValue: Number(row.gasValue),
     alarmState: row.alarmState == null ? null : Boolean(row.alarmState),
     pumpState: row.pumpState == null ? null : Boolean(row.pumpState),
     fanState: row.fanState == null ? null : Boolean(row.fanState),
@@ -99,21 +92,13 @@ export function useCompostData() {
     setRefreshing(false)
   }, [pollLatest, pollHealth, pollHistory])
 
-  const control = useCallback(async command => {
-    const result = await sendDeviceControl(command)
-    await pollLatest()
-    return result
-  }, [pollLatest])
-
-  const latestInterval = reading?.source === 'esp32' ? 1000 : LATEST_MS
   useEffect(() => {
     const healthController = new AbortController()
     pollLatest()
     pollHealth(healthController.signal)
     pollHistory()
-    const latestTimer = setInterval(() => { if (!document.hidden) pollLatest() }, latestInterval)
+    const latestTimer = setInterval(() => { if (!document.hidden) pollLatest() }, LATEST_MS)
     const historyTimer = setInterval(() => { if (!document.hidden) pollHistory() }, HISTORY_MS)
-    const healthTimer = setInterval(() => { if (!document.hidden) pollHealth(healthController.signal) }, 15000)
     const tickTimer = setInterval(() => setNow(Date.now()), 5000)
     const onVisibility = () => {
       if (!document.hidden) {
@@ -126,14 +111,13 @@ export function useCompostData() {
     return () => {
       clearInterval(latestTimer)
       clearInterval(historyTimer)
-      clearInterval(healthTimer)
       clearInterval(tickTimer)
       document.removeEventListener('visibilitychange', onVisibility)
       healthController.abort()
       controllers.current.latest?.abort()
       controllers.current.history?.abort()
     }
-  }, [pollLatest, pollHealth, pollHistory, latestInterval])
+  }, [pollLatest, pollHealth, pollHistory])
 
   const age = reading ? now - reading.t.getTime() : null
   const state = !reading ? (triedLatest ? 'offline' : 'loading') : age > STALE_MS ? 'stale' : reading.source === 'esp32' ? 'live' : 'cloud'
@@ -152,20 +136,19 @@ export function useCompostData() {
     if (!reading) return null
     const calculated = estimateHealthScore(reading)
     const value = reading.healthScore ?? calculated?.total
-    return value == null ? null : { value, source: reading.source === 'esp32' && reading.healthScore != null ? 'firmware' : 'estimated' }
+    return value == null ? null : { value, source: 'estimated' }
   }, [reading])
 
   const connectivity = useMemo(() => {
     const fresh = age != null && age <= STALE_MS
-    const connection = value => value === true ? 'connected' : value === false ? 'disconnected' : 'unknown'
     return {
-      wifi: connection(health?.wifiConnected), wifiNote: health?.wifiConnected == null ? 'Device Wi-Fi status is unavailable' : health.wifiConnected ? 'ESP32 connected to Wi-Fi' : 'ESP32 is not connected to Wi-Fi',
-      mqtt: connection(health?.mqttConnected), mqttNote: health?.mqttConnected == null ? 'MQTT status is unavailable' : health.mqttConnected ? 'ESP32 MQTT connection is active' : 'ESP32 MQTT connection is offline',
-      thingspeak: reading?.source === 'esp32' ? connection(health?.thingSpeakConnected) : fresh && !errors.backend ? 'connected' : errors.backend ? 'disconnected' : 'unknown',
-      thingspeakNote: reading?.source === 'esp32' ? `Latest sensor and actuator state is live from ESP32 through FastAPI; ThingSpeak ${health?.thingSpeakConnected ? 'is connected' : 'status is unavailable/offline'}` : fresh ? 'Latest sample received through FastAPI' : 'Waiting for a recent sample',
+      wifi: 'unknown', wifiNote: 'Wi-Fi status is not exposed by FastAPI',
+      mqtt: 'unknown', mqttNote: 'MQTT status is not exposed by FastAPI',
+      thingspeak: fresh && !errors.backend && reading?.source !== 'esp32' ? 'connected' : errors.backend ? 'disconnected' : 'unknown',
+      thingspeakNote: reading?.source === 'esp32' ? 'Latest sensor and actuator state is live from ESP32 through FastAPI' : fresh ? 'Latest sample received through FastAPI' : 'Waiting for a recent sample',
       uptime: null,
     }
-  }, [age, errors.backend, reading?.source, health])
+  }, [age, errors.backend, reading?.source])
 
   const sampleStamp = reading?.t?.getTime()
   useEffect(() => {
@@ -179,7 +162,7 @@ export function useCompostData() {
     }
     previous.current = { alarm: reading.alarmState, pump: reading.pumpState, fan: reading.fanState }
     if (added.length) setSession(old => [...added, ...old].slice(0, 60))
-  }, [sampleStamp]) // latest device reads arrive every second; ThingSpeak fallback is slower
+  }, [sampleStamp]) // readings arrive at the ThingSpeak update cadence
 
   const activity = useMemo(() => {
     const merged = [...session, ...deriveEvents(history)].sort((a, b) => b.t - a.t)
@@ -188,7 +171,7 @@ export function useCompostData() {
   const episodes = useMemo(() => deriveEpisodes(history), [history])
 
   return {
-    reading, source, state, lastUpdated: reading?.t ?? null, score, alerts, control,
+    reading, source, state, lastUpdated: reading?.t ?? null, score, alerts,
     connectivity, activity, episodes, history, historyState,
     historyError: errors.history, errors, health, refreshing, refresh, now,
   }

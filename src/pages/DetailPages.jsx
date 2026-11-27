@@ -193,7 +193,7 @@ export function Automation({ data }) {
       <PageIntro
         eyebrow="AUTOMATIC RESPONSE"
         title="Automation status"
-        desc="The ESP32 runs automatic rules locally. Manual mode and protected relay controls are available from the Automation page when the device is reachable."
+        desc="The ESP32 controls the relays locally. This page is read-only; no dashboard controls can switch hardware."
       />
 
       <div className="detail-grid">
